@@ -1,0 +1,510 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "virtualNetworkName": {
+      "type": "string",
+      "defaultValue": "EUW-PKI-PROD-VNET",
+      "metadata": {
+        "description": "Enter EU-West VNet Name"
+      }
+    },
+
+    "virtualNetworkAddressPrefix": {
+      "type": "string",
+      "defaultValue": "10.0.0.0/16",
+      "metadata": {
+        "description": "Enter VNet IP Address Address prefix"
+      }
+    },
+    "subnet_1_Prefix": {
+      "type": "string",
+      "defaultValue": "10.0.0.0/24",
+      "metadata": {
+        "description": "Enter Web Subnet address range"
+      }
+    },
+    "subnet_1_Name": {
+      "type": "string",
+      "defaultValue": "EUW-PKI-PROD-WEBSubnet",
+      "metadata": {
+        "description": "This is a Web Subnet"
+      }
+    },
+    "subnet_2_Prefix": {
+      "type": "string",
+      "defaultValue": "10.0.1.0/24",
+      "metadata": {
+        "description": "Enter App Subnet address range"
+      }
+    },
+    "subnet_2_Name": {
+      "type": "string",
+      "defaultValue": "EUW-PKI-PROD-APPSubnet",
+      "metadata": {
+        "description": "This is a App Subnet"
+      }
+    },
+
+    "subnet_3_Prefix": {
+      "type": "string",
+      "defaultValue": "10.0.2.0/24",
+      "metadata": {
+        "description": "Enter Bastion Subnet address range"
+      }
+    },
+    "subnet_3_Name": {
+      "type": "string",
+      "defaultValue": "AzureBastionSubnet",
+      "metadata": {
+        "description": "This is a Bastion Subnet"
+      }
+    },
+    "subnet_4_Prefix": {
+      "type": "string",
+      "defaultValue": "10.0.3.0/24",
+      "metadata": {
+        "description": "Enter Test VM Subnet address range"
+      }
+    },
+    "subnet_4_Name": {
+      "type": "string",
+      "defaultValue": "EUW-PKI-PROD-CASubnet",
+      "metadata": {
+        "description": "This is a CA Subnet"
+      }
+    },
+    "RegionalFirewallIP": {
+      "type": "string",
+      "defaultValue": "10.116.0.4",
+      "metadata": {
+        "description": "The IP Address of the local regional HUB firewall"
+      }
+    },
+    "networkSecurityGroups_EUW-PKI-PROD-Bastion-NSG": {
+      "type": "string",
+      "defaultValue": "EUW-PKI-PROD-Bastion-NSG",
+      "metadata": {
+        "description": "This is name of the networkSecurityGroup that will be assigned to FrontEnd Subnet"
+      }
+    },
+    "networkSecurityGroups_EUW-PKI-PROD-WEBSubnet_NSG": {
+      "type": "string",
+      "defaultValue": "EUW-PKI-PROD-WEBSubnet-NSG",
+      "metadata": {
+        "description": "This is name of the networkSecurityGroup that will be assigned to FrontEnd Subnet"
+      }
+    },
+    "networkSecurityGroups_EUW-PKI-PROD-APPSubnet_NSG": {
+      "type": "string",
+      "defaultValue": "EUW-PKI-PROD-APPSubnet-NSG",
+      "metadata": {
+        "description": "This is name of the networkSecurityGroup that will be assigned to Application Subnet"
+      }
+    },
+    "networkSecurityGroups_EUW-PKI-PROD-CASubnet_NSG": {
+      "type": "string",
+      "defaultValue": "EUW-PKI-PROD-CASubnet-NSG",
+      "metadata": {
+        "description": "This is name of the networkSecurityGroup that will be assigned to TEST PKI Subnet"
+      }
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Location for all resources."
+      }
+    }
+  },
+  "variables": {
+    "subnet_1_Prefix": "[parameters('subnet_1_Prefix')]",
+    "subnet_2_Prefix": "[parameters('subnet_2_Prefix')]",
+    "subnet_3_Prefix": "[parameters('subnet_3_Prefix')]",
+    "subnet_4_Prefix": "[parameters('subnet_4_Prefix')]",
+    "vnetRouteTable": "[concat(parameters('virtualNetworkName'), '-DefaultRouteTable')]",
+    "central-hub-firewall": "10.0.0.0/8"
+  },
+  "resources": [
+    {
+      "apiVersion": "2019-11-01",
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "name": "[parameters('networkSecurityGroups_EUW-PKI-PROD-Bastion-NSG')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "securityRules": [
+           {
+                        "name": "InboundFromAny",
+                        "properties": {
+                            "description": "Allow connection from any host on https.",
+                            "protocol": "TCP",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "443",
+                            "sourceAddressPrefix": "*",
+                            "destinationAddressPrefix": "*",
+                            "access": "Allow",
+                            "priority": 100,
+                            "direction": "Inbound",
+                            "sourcePortRanges": [],
+                            "destinationPortRanges": [],
+                            "sourceAddressPrefixes": [],
+                            "destinationAddressPrefixes": []
+                        }
+                    },
+                    {
+                        "name": "InboundFromGM",
+                        "properties": {
+                            "description": "This enables the control plane, that is, Gateway Manager to be able to talk to Azure Bastion.",
+                            "protocol": "TCP",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "443",
+                            "sourceAddressPrefix": "GatewayManager",
+                            "destinationAddressPrefix": "*",
+                            "access": "Allow",
+                            "priority": 120,
+                            "direction": "Inbound",
+                            "sourcePortRanges": [],
+                            "destinationPortRanges": [],
+                            "sourceAddressPrefixes": [],
+                            "destinationAddressPrefixes": []
+                        }
+                    },
+                    {
+                        "name": "OutboundToVNET_SSH",
+                        "properties": {
+                            "description": "Egress Traffic to target VMs: Azure Bastion will reach the target VMs over private IP and SSH port",
+                            "protocol": "TCP",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "22",
+                            "sourceAddressPrefix": "*",
+                            "destinationAddressPrefix": "VirtualNetwork",
+                            "access": "Allow",
+                            "priority": 120,
+                            "direction": "Outbound",
+                            "sourcePortRanges": [],
+                            "destinationPortRanges": [],
+                            "sourceAddressPrefixes": [],
+                            "destinationAddressPrefixes": []
+                        }
+                    },
+                    {
+                        "name": "OutboundToVNET_RDP",
+                        "properties": {
+                            "description": "Egress Traffic to target VMs: Azure Bastion will reach the target VMs over private IP and RDP port",
+                            "protocol": "TCP",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "3389",
+                            "sourceAddressPrefix": "*",
+                            "destinationAddressPrefix": "VirtualNetwork",
+                            "access": "Allow",
+                            "priority": 110,
+                            "direction": "Outbound",
+                            "sourcePortRanges": [],
+                            "destinationPortRanges": [],
+                            "sourceAddressPrefixes": [],
+                            "destinationAddressPrefixes": []
+                        }
+                    },
+                    {
+                        "name": "OutboundHTTPStoAzureCloud",
+                        "properties": {
+                            "description": "Egress Traffic to other public endpoints in Azure",
+                            "protocol": "TCP",
+                            "sourcePortRange": "*",
+                            "destinationPortRange": "443",
+                            "sourceAddressPrefix": "*",
+                            "destinationAddressPrefix": "AzureCloud",
+                            "access": "Allow",
+                            "priority": 100,
+                            "direction": "Outbound",
+                            "sourcePortRanges": [],
+                            "destinationPortRanges": [],
+                            "sourceAddressPrefixes": [],
+                            "destinationAddressPrefixes": []
+                        }
+                    }
+                ]
+      }
+    },
+    {
+      "apiVersion": "2015-05-01-preview",
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "name": "[parameters('networkSecurityGroups_EUW-PKI-PROD-WEBSubnet_NSG')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "securityRules": [
+          {
+            "name": "Allow-All-VNET-Traffic",
+            "properties": {
+              "description": "Allow all VNet Traffic",
+              "protocol": "*",
+              "sourcePortRange": "*",
+              "destinationPortRange": "*",
+              "sourceAddressPrefix": "[parameters('virtualNetworkAddressPrefix')]",
+              "destinationAddressPrefix": "*",
+              "access": "Allow",
+              "priority": 200,
+              "direction": "Inbound"
+            }
+          },
+          {
+            "name": "Allow-All-Traffic-From-Firewall",
+            "properties": {
+              "description": "Allow all traffic from the HUB",
+              "protocol": "*",
+              "sourcePortRange": "*",
+              "destinationPortRange": "*",
+              "sourceAddressPrefix": "VirtualNetwork",
+              "destinationAddressPrefix": "[variables('central-hub-firewall')]",
+              "access": "Allow",
+              "priority": 210,
+              "direction": "Inbound"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "2015-05-01-preview",
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "name": "[parameters('networkSecurityGroups_EUW-PKI-PROD-CASubnet_NSG')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "securityRules": [
+          {
+            "name": "AllowRDP-FROM-Bastion",
+            "properties": {
+              "description": "Allow RDP SOURCE AzureBastionSubnet TO CASubnet",
+              "protocol": "Tcp",
+              "sourcePortRange": "*",
+              "destinationPortRange": "3389",
+              "sourceAddressPrefix": "[variables('subnet_3_Prefix')]",
+              "destinationAddressPrefix": "[variables('subnet_4_Prefix')]",
+              "access": "Allow",
+              "priority": 200,
+              "direction": "Inbound"
+            }
+          },
+          {
+            "name": "Allow-HTTPS-FROM-VirtualNetwork",
+            "properties": {
+              "description": "Allow 443 Port SOURCE VirtualNetwork TO EUW-PKI-PROD-CASubnet",
+              "protocol": "*",
+              "sourcePortRange": "*",
+              "destinationPortRange": "443",
+              "sourceAddressPrefix": "VirtualNetwork",
+              "destinationAddressPrefix": "[variables('subnet_2_Prefix')]",
+              "access": "Allow",
+              "priority": 210,
+              "direction": "Inbound"
+            }
+          },
+          {
+            "name": "Allow-HTTPS-FROM-APPSubnet",
+            "properties": {
+              "description": "Allow 443. Port SOURCE EUW-PKI-PROD-APPSubnet TO EUW-PKI-PROD-CASubnet",
+              "protocol": "*",
+              "sourcePortRange": "*",
+              "destinationPortRange": "443",
+              "sourceAddressPrefix": "[variables('subnet_2_Prefix')]",
+              "destinationAddressPrefix": "[variables('subnet_4_Prefix')]",
+              "access": "Allow",
+              "priority": 220,
+              "direction": "Inbound"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "2015-05-01-preview",
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "name": "[parameters('networkSecurityGroups_EUW-PKI-PROD-APPSubnet_NSG')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "securityRules": [
+          {
+            "name": "AllowRDP-fROM-Bastion",
+            "properties": {
+              "description": "Allow RDP SOURCE AzureBastionSubnet TO AppSubnet",
+              "protocol": "Tcp",
+              "sourcePortRange": "*",
+              "destinationPortRange": "3389",
+              "sourceAddressPrefix": "[variables('subnet_3_Prefix')]",
+              "destinationAddressPrefix": "[variables('subnet_2_Prefix')]",
+              "access": "Allow",
+              "priority": 200,
+              "direction": "Inbound"
+            }
+          },
+          {
+            "name": "Allow-HTTPS-FROM-VirtualNetwork",
+            "properties": {
+              "description": "Allow 443 Port SOURCE VirtualNetwork TO EUW-PKI-PROD-APPSubnet",
+              "protocol": "*",
+              "sourcePortRange": "*",
+              "destinationPortRange": "443",
+              "sourceAddressPrefix": "VirtualNetwork",
+              "destinationAddressPrefix": "[variables('subnet_2_Prefix')]",
+              "access": "Allow",
+              "priority": 210,
+              "direction": "Inbound"
+            }
+          },
+          {
+            "name": "Allow-HTTPS-FROM-WEBSubnet",
+            "properties": {
+              "description": "Allow 443 Port SOURCE EUW-PKI-PROD-WEBSubnet TO EUW-PKI-PROD-APPSubnet",
+              "protocol": "*",
+              "sourcePortRange": "*",
+              "destinationPortRange": "443",
+              "sourceAddressPrefix": "[variables('subnet_1_Prefix')]",
+              "destinationAddressPrefix": "[variables('subnet_2_Prefix')]",
+              "access": "Allow",
+              "priority": 220,
+              "direction": "Inbound"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "2018-10-01",
+      "type": "Microsoft.Network/virtualNetworks",
+      "name": "[parameters('virtualNetworkName')]",
+      "location": "[parameters('location')]",
+      "dependsOn": [
+        "[concat('Microsoft.Network/networkSecurityGroups/', parameters('networkSecurityGroups_EUW-PKI-PROD-WEBSubnet_NSG'))]",
+        "[concat('Microsoft.Network/networkSecurityGroups/', parameters('networkSecurityGroups_EUW-PKI-PROD-APPSubnet_NSG'))]",
+        "[concat('Microsoft.Network/networkSecurityGroups/', parameters('networkSecurityGroups_EUW-PKI-PROD-CASubnet_NSG'))]",
+        "[concat('Microsoft.Network/networkSecurityGroups/', parameters('networkSecurityGroups_EUW-PKI-PROD-Bastion-NSG'))]"
+      ],
+      "properties": {
+        "addressSpace": {
+          "addressPrefixes": [
+            "[parameters('virtualNetworkAddressPrefix')]"
+          ]
+        }
+      },
+      "resources": [
+        {
+          "apiVersion": "2018-10-01",
+          "type": "subnets",
+          "location": "[parameters('location')]",
+          "name": "[parameters('subnet_1_Name')]",
+          "dependsOn": [
+            "[parameters('virtualNetworkName')]"
+          ],
+          "properties": {
+            "addressPrefix": "[parameters('subnet_1_Prefix')]",
+            "networkSecurityGroup": {
+              "id": "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('networkSecurityGroups_EUW-PKI-PROD-WEBSubnet_NSG'))]"
+            }
+          }
+        },
+        {
+          "apiVersion": "2018-10-01",
+          "type": "subnets",
+          "location": "[parameters('location')]",
+          "name": "[parameters('subnet_2_Name')]",
+          "dependsOn": [
+            "[parameters('virtualNetworkName')]",
+            "[parameters('subnet_1_Name')]"
+          ],
+          "properties": {
+            "addressPrefix": "[parameters('subnet_2_Prefix')]",
+            "networkSecurityGroup": {
+              "id": "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('networkSecurityGroups_EUW-PKI-PROD-AppSubnet_NSG'))]"
+            }
+          }
+        },
+        {
+          "apiVersion": "2018-10-01",
+          "type": "subnets",
+          "location": "[parameters('location')]",
+          "name": "[parameters('subnet_3_Name')]",
+          "dependsOn": [
+            "[parameters('virtualNetworkName')]",
+            "[parameters('subnet_2_Name')]"
+          ],
+          "properties": {
+            "addressPrefix": "[parameters('subnet_3_Prefix')]",
+            "networkSecurityGroup": {
+              "id": "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('networkSecurityGroups_EUW-PKI-PROD-Bastion-NSG'))]"
+            }
+          }
+        },
+        {
+          "apiVersion": "2018-10-01",
+          "type": "subnets",
+          "location": "[parameters('location')]",
+          "name": "[parameters('subnet_4_Name')]",
+          "dependsOn": [
+            "[parameters('virtualNetworkName')]",
+            "[parameters('subnet_3_Name')]"
+          ],
+          "properties": {
+            "addressPrefix": "[parameters('subnet_4_Prefix')]",
+            "networkSecurityGroup": {
+              "id": "[resourceId('Microsoft.Network/networkSecurityGroups', parameters('networkSecurityGroups_EUW-PKI-PROD-CASubnet_NSG'))]"
+            }
+
+          }
+        }
+      ]
+    },
+    {
+      "type": "Microsoft.Network/routeTables",
+      "apiVersion": "2019-12-01",
+      "name": "[variables('vnetRouteTable')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "disableBgpRoutePropagation": false,
+        "routes": [
+          {
+            "name": "LocalVnetTraffic",
+            "properties": {
+              "addressPrefix": "[parameters('virtualNetworkAddressPrefix')]",
+              "nextHopType": "VnetLocal"
+            }
+          },
+          {
+            "name": "Corporate_10.0.0.0_Via_AzureFirewall",
+            "properties": {
+              "addressPrefix": "10.0.0.0/8",
+              "nextHopType": "VirtualAppliance",
+              "nextHopIpAddress": "[parameters('RegionalFirewallIP')]"
+            }
+          },
+          {
+            "name": "Corporate_172.0.0.0_Via_AzureFirewall",
+            "properties": {
+              "addressPrefix": "172.0.0.0/8",
+              "nextHopType": "VirtualAppliance",
+              "nextHopIpAddress": "[parameters('RegionalFirewallIP')]"
+            }
+          },
+          {
+            "name": "Corporate_192.0.0.0_Via_AzureFirewall",
+            "properties": {
+              "addressPrefix": "192.0.0.0/8",
+              "nextHopType": "VirtualAppliance",
+              "nextHopIpAddress": "[parameters('RegionalFirewallIP')]"
+            }
+          },
+          {
+            "name": "Internet_0.0.0.0_Via_AzureFirewall",
+            "properties": {
+              "addressPrefix": "0.0.0.0/0",
+              "nextHopType": "VirtualAppliance",
+              "nextHopIpAddress": "[parameters('RegionalFirewallIP')]"
+            }
+          }
+        ]
+      }
+    }
+
+
+
+  ]
+}
